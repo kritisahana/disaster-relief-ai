@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Disaster Relief Resource Input</title>
+</head>
+<body style="font-family: Arial; margin: 40px;">
+  <h2>🆘 Disaster Relief Resource Input</h2>
+
+  <form action="/submit" method="post">
+    <table border="1" cellpadding="6">
+      <tr>
+        <th>Area</th><th>Population</th><th>Need</th><th>Urgency</th><th>Blocked?</th>
+      </tr>
+      <tr>
+        <td><input name="area1"></td>
+        <td><input name="pop1"></td>
+        <td><input name="need1"></td>
+        <td><input name="urg1"></td>
+        <td><input name="blk1"></td>
+      </tr>
+      <tr>
+        <td><input name="area2"></td>
+        <td><input name="pop2"></td>
+        <td><input name="need2"></td>
+        <td><input name="urg2"></td>
+        <td><input name="blk2"></td>
+      </tr>
+      <tr>
+        <td><input name="area3"></td>
+        <td><input name="pop3"></td>
+        <td><input name="need3"></td>
+        <td><input name="urg3"></td>
+        <td><input name="blk3"></td>
+      </tr>
+    </table>
+
+    <br><br>
+    <h3>Total resources available:</h3>
+    Food: <input name="food">
+    Water: <input name="water">
+    Medical Kits: <input name="medical"><br><br>
+
+    <button type="submit">Submit</button>
+  </form>
+
+  {% if message %}
+  <p style="margin-top: 20px; font-weight: bold;">{{ message }}</p>
+  {% endif %}
+
+  {% if allocations %}
+  <h3>Optimized Allocations:</h3>
+  <table border="1" cellpadding="6">
+    <tr>
+      <th>Area</th><th>Need</th><th>Food</th><th>Water</th><th>Medical</th>
+    </tr>
+    {% for r in allocations %}
+    <tr>
+      <td>{{ r.Area }}</td>
+      <td>{{ r.Need }}</td>
+      <td>{{ r.Allocated.Food }}</td>
+      <td>{{ r.Allocated.Water }}</td>
+      <td>{{ r.Allocated.Medical }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+  {% if plot %}
+    <h3>Fitness Improvement Graph:</h3>
+    <img src="{{ url_for('static', filename='fitness_plot.png') }}" alt="Fitness Plot" width="500">
+    {% endif %}
+
+</body>
+</html>
