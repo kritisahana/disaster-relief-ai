@@ -1,17 +1,10 @@
-from flask import Flask, render_template, request   # imports first
-import random
-
-app = Flask(__name__)                               # create the app first
-
-
-import random
+from flask import Flask, render_template, request
 import matplotlib
-matplotlib.use('Agg')   # Use non-GUI backend
+matplotlib.use('Agg')  # Prevents macOS GUI crash
 import matplotlib.pyplot as plt
+import random, os
 
-
-import random
-import matplotlib.pyplot as plt
+app = Flask(__name__)
 
 def ga_optimizer(areas, resources, generations=30, population_size=20):
     total_food = resources["Food"]
@@ -45,14 +38,17 @@ def ga_optimizer(areas, resources, generations=30, population_size=20):
                 coverage += p["Allocated"]["Water"]
             elif need == "medical":
                 coverage += p["Allocated"]["Medical"]
+
             if urgency == "high":
                 urgency_score += 100
             elif urgency == "medium":
                 urgency_score += 60
             else:
                 urgency_score += 30
+
             if a["Blocked"].lower() == "yes":
                 delivery_penalty += 20
+
         return 0.5 * coverage + 0.3 * urgency_score - 0.2 * delivery_penalty
 
     population = [random_plan() for _ in range(population_size)]
@@ -60,7 +56,7 @@ def ga_optimizer(areas, resources, generations=30, population_size=20):
 
     for _ in range(generations):
         scored = sorted([(fitness(p), p) for p in population], key=lambda x: x[0], reverse=True)
-        best_fitness_over_time.append(scored[0][0])  # record best fitness this generation
+        best_fitness_over_time.append(scored[0][0])
         best_half = [p for _, p in scored[:population_size//2]]
 
         children = []
@@ -77,19 +73,18 @@ def ga_optimizer(areas, resources, generations=30, population_size=20):
 
     best_fitness, best_plan = scored[0]
 
-    # plot the fitness curve
+    # Plot fitness curve
     plt.figure()
-    plt.plot(best_fitness_over_time, marker='o')
+    plt.plot(best_fitness_over_time, marker='o', color='blue')
     plt.title('Fitness Improvement Over Generations')
     plt.xlabel('Generation')
     plt.ylabel('Best Fitness')
     plt.grid(True)
-    plt.savefig('static/fitness_plot.png')  # save to static folder
+    os.makedirs('static', exist_ok=True)
+    plt.savefig('static/fitness_plot.png')
     plt.close()
 
     return best_plan, best_fitness
-
-
 
 
 @app.route('/')
@@ -99,20 +94,22 @@ def home():
 
 @app.route('/submit', methods=['POST'])
 def submit():
+    # Collect variable-length area data
     areas = []
-    for i in range(1, 4):
-        area = request.form.get(f'area{i}')
-        pop = request.form.get(f'pop{i}')
-        need = request.form.get(f'need{i}')
-        urg = request.form.get(f'urg{i}')
-        blk = request.form.get(f'blk{i}')
-        if area:
+    area_names = request.form.getlist('area[]')
+    pops = request.form.getlist('population[]')
+    needs = request.form.getlist('need[]')
+    urgencies = request.form.getlist('urgency[]')
+    blocked = request.form.getlist('blocked[]')
+
+    for i in range(len(area_names)):
+        if area_names[i].strip() != "":
             areas.append({
-                "Area": area,
-                "Population": int(pop or 0),
-                "Need": need,
-                "Urgency": urg,
-                "Blocked": blk
+                "Area": area_names[i],
+                "Population": int(pops[i] or 0),
+                "Need": needs[i],
+                "Urgency": urgencies[i],
+                "Blocked": blocked[i]
             })
 
     resources = {
@@ -121,21 +118,17 @@ def submit():
         "Medical": int(request.form.get("medical") or 0)
     }
 
-    # 🔹 Run the simple GA and display results
+    if not areas:
+        return render_template('index.html', message="⚠️ Please add at least one area.")
+
     allocations, fitness = ga_optimizer(areas, resources)
-    plot_path = 'static/fitness_plot.png'
-
-
     return render_template(
         'index.html',
-        message=f"Optimized Allocation (fitness={fitness:.2f})",
+        message=f"Optimization Complete! (Fitness Score: {fitness:.2f})",
         allocations=allocations,
-        plot=plot_path
+        plot='fitness_plot.png'
     )
 
 
 if __name__ == '__main__':
     app.run(debug=True)
-
-
-

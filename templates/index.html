@@ -2,46 +2,97 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Disaster Relief Resource Input</title>
+  <title>Disaster Relief Resource Allocation</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 30px; }
+    h2, h3 { color: #2a4d69; }
+    table { border-collapse: collapse; width: 100%; margin-top: 15px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    th { background: #f4f4f4; }
+    button { margin: 8px 0; padding: 6px 10px; cursor: pointer; border: none; border-radius: 5px; }
+    button:hover { opacity: 0.8; }
+    .add-btn { background-color: #4CAF50; color: white; }
+    .remove-btn { background-color: #f44336; color: white; }
+    .submit-btn { background-color: #2196F3; color: white; padding: 8px 14px; }
+  </style>
+  <script>
+    function addRow() {
+      const tbody = document.getElementById("areaBody");
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><input name="area[]" required></td>
+        <td><input name="population[]" type="number" min="0" required></td>
+        <td><input name="need[]" required></td>
+        <td>
+          <select name="urgency[]">
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </td>
+        <td>
+          <select name="blocked[]">
+            <option value="No">No</option>
+            <option value="Yes">Yes</option>
+          </select>
+        </td>
+        <td><button type="button" class="remove-btn" onclick="removeRow(this)">❌</button></td>
+      `;
+      tbody.appendChild(row);
+    }
+
+    function removeRow(btn) {
+      btn.closest("tr").remove();
+    }
+  </script>
 </head>
-<body style="font-family: Arial; margin: 40px;">
+<body>
   <h2>🆘 Disaster Relief Resource Input</h2>
 
-  <form action="/submit" method="post">
-    <table border="1" cellpadding="6">
-      <tr>
-        <th>Area</th><th>Population</th><th>Need</th><th>Urgency</th><th>Blocked?</th>
-      </tr>
-      <tr>
-        <td><input name="area1"></td>
-        <td><input name="pop1"></td>
-        <td><input name="need1"></td>
-        <td><input name="urg1"></td>
-        <td><input name="blk1"></td>
-      </tr>
-      <tr>
-        <td><input name="area2"></td>
-        <td><input name="pop2"></td>
-        <td><input name="need2"></td>
-        <td><input name="urg2"></td>
-        <td><input name="blk2"></td>
-      </tr>
-      <tr>
-        <td><input name="area3"></td>
-        <td><input name="pop3"></td>
-        <td><input name="need3"></td>
-        <td><input name="urg3"></td>
-        <td><input name="blk3"></td>
-      </tr>
+  <form action="/submit" method="POST">
+    <table>
+      <thead>
+        <tr>
+          <th>Area</th>
+          <th>Population</th>
+          <th>Need</th>
+          <th>Urgency</th>
+          <th>Blocked?</th>
+          <th>Remove</th>
+        </tr>
+      </thead>
+      <tbody id="areaBody">
+        <!-- Default one row -->
+        <tr>
+          <td><input name="area[]" required></td>
+          <td><input name="population[]" type="number" min="0" required></td>
+          <td><input name="need[]" required></td>
+          <td>
+            <select name="urgency[]">
+              <option value="High">High</option>
+              <option value="Medium">Medium</option>
+              <option value="Low">Low</option>
+            </select>
+          </td>
+          <td>
+            <select name="blocked[]">
+              <option value="No">No</option>
+              <option value="Yes">Yes</option>
+            </select>
+          </td>
+          <td><button type="button" class="remove-btn" onclick="removeRow(this)">❌</button></td>
+        </tr>
+      </tbody>
     </table>
 
-    <br><br>
-    <h3>Total resources available:</h3>
-    Food: <input name="food">
-    Water: <input name="water">
-    Medical Kits: <input name="medical"><br><br>
+    <button type="button" class="add-btn" onclick="addRow()">➕ Add Area</button>
 
-    <button type="submit">Submit</button>
+    <h3>Available Resources</h3>
+    Food: <input name="food" type="number" required> |
+    Water: <input name="water" type="number" required> |
+    Medical: <input name="medical" type="number" required><br><br>
+
+    <button type="submit" class="submit-btn">🚀 Run Optimization</button>
   </form>
 
   {% if message %}
@@ -50,26 +101,23 @@
 
   {% if allocations %}
   <h3>Optimized Allocations:</h3>
-  <table border="1" cellpadding="6">
+  <table>
+    <tr><th>Area</th><th>Need</th><th>Food</th><th>Water</th><th>Medical</th></tr>
+    {% for a in allocations %}
     <tr>
-      <th>Area</th><th>Need</th><th>Food</th><th>Water</th><th>Medical</th>
-    </tr>
-    {% for r in allocations %}
-    <tr>
-      <td>{{ r.Area }}</td>
-      <td>{{ r.Need }}</td>
-      <td>{{ r.Allocated.Food }}</td>
-      <td>{{ r.Allocated.Water }}</td>
-      <td>{{ r.Allocated.Medical }}</td>
+      <td>{{ a.Area }}</td>
+      <td>{{ a.Need }}</td>
+      <td>{{ a.Allocated.Food }}</td>
+      <td>{{ a.Allocated.Water }}</td>
+      <td>{{ a.Allocated.Medical }}</td>
     </tr>
     {% endfor %}
   </table>
   {% endif %}
 
   {% if plot %}
-    <h3>Fitness Improvement Graph:</h3>
-    <img src="{{ url_for('static', filename='fitness_plot.png') }}" alt="Fitness Plot" width="500">
-    {% endif %}
-
+  <h3>📈 Fitness Curve</h3>
+  <img src="{{ url_for('static', filename=plot) }}" alt="Fitness Graph" width="500">
+  {% endif %}
 </body>
 </html>
