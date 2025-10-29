@@ -8,76 +8,87 @@ import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
-# ---------------------- Improved Genetic Algorithm ----------------------
+# ---------------------- Genetic Algorithm ---------------------- 
 def ga_optimizer(areas, resources, generations=30, population_size=30, elite_size=2, mutation_rate=0.15):
-    """
-    Genetic Algorithm with:
-      - Elitism
-      - Bounded mutation (±10% of total resource)
-      - Best + average fitness tracking
-    """
+    
     total_food = max(1, int(resources.get("Food", 0)))
     total_water = max(1, int(resources.get("Water", 0)))
     total_med = max(1, int(resources.get("Medical", 0)))
 
-    def random_plan():
+    def random_plan(): 
         plan = []
-        for _a in areas:
+        total_population = sum(a["Population"] for a in areas) or 1  # avoid divide-by-zero
+
+        for a in areas: # so resources arent wasted
+            pop = a["Population"]
+            pop_ratio = pop / total_population     # for example 100/300 = 0.33, 0.33*300 = 100 (we have 300 area a - 100 )
+            max_food = int(pop_ratio * total_food)
+            max_water = int(pop_ratio * total_water)
+            max_med = int(pop_ratio * total_med)
+
+            # random allocation bounded by population share
             plan.append({
-                "Area": _a["Area"],
+                "Area": a["Area"],
                 "Allocated": {
-                    "Food": random.randint(0, total_food),
-                    "Water": random.randint(0, total_water),
-                    "Medical": random.randint(0, total_med)
+                    "Food": random.randint(0, max_food),
+                    "Water": random.randint(0, max_water),
+                    "Medical": random.randint(0, max_med)
                 }
             })
         return plan
 
+
     def fitness(plan):
-        coverage = 0.0
-        urgency_score = 0.0
+        fitness_score = 0.0
         delivery_penalty = 0.0
+
         for p, a in zip(plan, areas):
             need = (a.get("Need") or "").lower()
-            urgency = (a.get("Urgency") or "low").lower()
-            blocked = (a.get("Blocked") or "No").lower()
+            blocked = (a.get("Blocked") or "no").lower()
 
+            food = p["Allocated"]["Food"]
+            water = p["Allocated"]["Water"]
+            medical = p["Allocated"]["Medical"]
+
+            # Priority based on need type
             if need == "food":
-                coverage += p["Allocated"]["Food"]
+                score = (0.7 * food) + (0.2 * water) + (0.1 * medical)
             elif need == "water":
-                coverage += p["Allocated"]["Water"]
+                score = (0.7 * water) + (0.2 * food) + (0.1 * medical)
             elif need == "medical":
-                coverage += p["Allocated"]["Medical"]
-
-            if urgency == "high":
-                urgency_score += 100
-            elif urgency == "medium":
-                urgency_score += 60
+                score = (0.7 * medical) + (0.2 * food) + (0.1 * water)
             else:
-                urgency_score += 30
+                # if need is unspecified, treat all equally
+                score = 0.33 * (food + water + medical)
 
             if blocked == "yes":
                 delivery_penalty += 40
 
-        return 0.5 * coverage + 0.3 * urgency_score - 0.2 * delivery_penalty
+            fitness_score += score
+
+        return fitness_score - delivery_penalty
+
 
     population = [random_plan() for _ in range(population_size)]
     best_fitness_over_time = []
     avg_fitness_over_time = []
 
     for gen in range(generations):
+        # --- Evaluate fitness of all individuals ---
         scored = [(fitness(ind), ind) for ind in population]
         scored.sort(key=lambda x: x[0], reverse=True)
         fitness_values = [s for s, _ in scored]
 
+        
         best = scored[0][0]
         avg = sum(fitness_values) / len(fitness_values)
         best_fitness_over_time.append(best)
         avg_fitness_over_time.append(avg)
 
+        
         elites = [ind for _, ind in scored[:elite_size]]
 
-        # Selection probabilities
+        # --- Normalize fitness values into probabilities --- (So it doesnt go beyond limit)
         min_fit = min(fitness_values)
         shift = -min_fit + 1.0 if min_fit < 0 else 0
         fitness_positive = [f + shift for f in fitness_values]
@@ -93,31 +104,65 @@ def ga_optimizer(areas, resources, generations=30, population_size=30, elite_siz
                     return _
             return scored[0][1]
 
+        # --- Child generation ---
         children = elites.copy()
+
+        # --- Resource constraint --- total from mutation is 450 total food we have is 400 
+        def normalize_resources(child):
+            total_allocated = {"Food": 0, "Water": 0, "Medical": 0}
+            for area in child:
+                for r in total_allocated:
+                    total_allocated[r] += area["Allocated"][r]
+
+            for r, total in total_allocated.items():
+                limit = total_food if r == "Food" else (total_water if r == "Water" else total_med)
+                if total > limit:
+                    # Scale down proportionally 
+                    scale = limit / total
+                    for area in child:
+                        area["Allocated"][r] = int(area["Allocated"][r] * scale)
+            return child
+
+        # --- Reproduction loop --- 
+
         while len(children) < population_size:
             p1 = pick_parent()
             p2 = pick_parent()
+
+            # --- Crossover ---
             if len(areas) > 1:
                 cp = random.randint(1, len(areas) - 1)
                 child = [dict(x) for x in (p1[:cp] + p2[cp:])]
             else:
                 child = [dict(x) for x in p1]
 
+            # --- Mutation ---
             if random.random() < mutation_rate:
                 area_idx = random.randint(0, len(areas) - 1)
                 res_type = random.choice(["Food", "Water", "Medical"])
                 cur_val = child[area_idx]["Allocated"].get(res_type, 0)
-                delta = int(max(1, round(0.10 * (total_food if res_type == "Food" else (total_water if res_type == "Water" else total_med)))))
+                delta = int(max(1, round(0.10 * (total_food if res_type == "Food"
+                                                else (total_water if res_type == "Water"
+                                                    else total_med)))))
                 change = random.randint(-delta, delta)
-                new_val = max(0, min(cur_val + change, total_food if res_type == "Food" else total_water if res_type == "Water" else total_med))
+                new_val = max(0, min(cur_val + change,
+                                    total_food if res_type == "Food"
+                                    else total_water if res_type == "Water"
+                                    else total_med))
                 child[area_idx]["Allocated"][res_type] = new_val
 
+            # --- Normalize to keep within resource limits ---
+            child = normalize_resources(child)
             children.append(child)
+
         population = children
 
-    final_scored = sorted([(fitness(ind), ind) for ind in population], key=lambda x: x[0], reverse=True)
+    # --- After all generations ---
+    final_scored = sorted([(fitness(ind), ind) for ind in population],
+                        key=lambda x: x[0], reverse=True)
     best_fitness, best_plan = final_scored[0]
 
+    # --- Plot Fitness Progress ---
     os.makedirs("static", exist_ok=True)
     plt.figure(figsize=(6, 4))
     plt.plot(range(1, generations + 1), best_fitness_over_time, marker='o', label='Best')
@@ -132,6 +177,7 @@ def ga_optimizer(areas, resources, generations=30, population_size=30, elite_siz
     plt.close()
 
     return best_plan, best_fitness
+
 
 # ---------------------- Route Planning ----------------------
 def euclidean(a, b):

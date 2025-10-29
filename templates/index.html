@@ -24,7 +24,7 @@
 </head>
 <body>
   <div class="container">
-    <h2>🆘 Disaster Relief — Resource GA & Route Planner</h2>
+    <h2>Disaster Relief — Resource GA & Route Planner</h2>
 
     <form id="mainForm" method="post">
       <div class="card">
@@ -32,7 +32,7 @@
         <table id="areaTable">
           <thead>
             <tr>
-              <th>Area</th><th>Population</th><th>Need</th><th>Urgency</th><th>Blocked?</th><th>X</th><th>Y</th><th>Remove</th>
+              <th>Area</th><th>Population</th><th>Need</th><th>Blocked?</th><th>X</th><th>Y</th><th>Remove</th>
             </tr>
           </thead>
           <tbody id="areaBody">
@@ -40,11 +40,6 @@
               <td><input name="area1" required></td>
               <td><input name="pop1" type="number" value="0" required></td>
               <td><input name="need1" placeholder="Food/Water/Medical" required></td>
-              <td>
-                <select name="urg1">
-                  <option>High</option><option selected>Medium</option><option>Low</option>
-                </select>
-              </td>
               <td>
                 <select name="blk1">
                   <option>No</option><option>Yes</option>
@@ -140,11 +135,6 @@
         <td><input name="area${count}" required></td>
         <td><input name="pop${count}" type="number" value="0" required></td>
         <td><input name="need${count}" placeholder="Food/Water/Medical" required></td>
-        <td>
-          <select name="urg${count}">
-            <option>High</option><option selected>Medium</option><option>Low</option>
-          </select>
-        </td>
         <td>
           <select name="blk${count}">
             <option>No</option><option>Yes</option>
