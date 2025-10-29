@@ -3,17 +3,22 @@ import os
 import random
 import math
 import matplotlib
-matplotlib.use('Agg')  # important for server/macOS
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 
-
-# ---------------------- Genetic Algorithm (resource allocation) ----------------------
-def ga_optimizer(areas, resources, generations=30, population_size=30):
-    total_food = resources.get("Food", 0)
-    total_water = resources.get("Water", 0)
-    total_med = resources.get("Medical", 0)
+# ---------------------- Improved Genetic Algorithm ----------------------
+def ga_optimizer(areas, resources, generations=30, population_size=30, elite_size=2, mutation_rate=0.15):
+    """
+    Genetic Algorithm with:
+      - Elitism
+      - Bounded mutation (±10% of total resource)
+      - Best + average fitness tracking
+    """
+    total_food = max(1, int(resources.get("Food", 0)))
+    total_water = max(1, int(resources.get("Water", 0)))
+    total_med = max(1, int(resources.get("Medical", 0)))
 
     def random_plan():
         plan = []
@@ -21,9 +26,9 @@ def ga_optimizer(areas, resources, generations=30, population_size=30):
             plan.append({
                 "Area": _a["Area"],
                 "Allocated": {
-                    "Food": random.randint(0, max(1, total_food)),
-                    "Water": random.randint(0, max(1, total_water)),
-                    "Medical": random.randint(0, max(1, total_med))
+                    "Food": random.randint(0, total_food),
+                    "Water": random.randint(0, total_water),
+                    "Medical": random.randint(0, total_med)
                 }
             })
         return plan
@@ -52,46 +57,75 @@ def ga_optimizer(areas, resources, generations=30, population_size=30):
                 urgency_score += 30
 
             if blocked == "yes":
-                delivery_penalty += 40  # stronger penalty for blocked areas
+                delivery_penalty += 40
 
         return 0.5 * coverage + 0.3 * urgency_score - 0.2 * delivery_penalty
 
-    # initial population
     population = [random_plan() for _ in range(population_size)]
     best_fitness_over_time = []
+    avg_fitness_over_time = []
 
-    for _gen in range(generations):
-        scored = sorted([(fitness(p), p) for p in population], key=lambda x: x[0], reverse=True)
-        best_fitness_over_time.append(scored[0][0])
-        best_half = [p for _, p in scored[:max(2, population_size // 2)]]
+    for gen in range(generations):
+        scored = [(fitness(ind), ind) for ind in population]
+        scored.sort(key=lambda x: x[0], reverse=True)
+        fitness_values = [s for s, _ in scored]
 
-        children = []
+        best = scored[0][0]
+        avg = sum(fitness_values) / len(fitness_values)
+        best_fitness_over_time.append(best)
+        avg_fitness_over_time.append(avg)
+
+        elites = [ind for _, ind in scored[:elite_size]]
+
+        # Selection probabilities
+        min_fit = min(fitness_values)
+        shift = -min_fit + 1.0 if min_fit < 0 else 0
+        fitness_positive = [f + shift for f in fitness_values]
+        total_fp = sum(fitness_positive)
+        probs = [fp / total_fp if total_fp > 0 else 1.0 / len(fitness_positive) for fp in fitness_positive]
+
+        def pick_parent():
+            r = random.random()
+            cum = 0.0
+            for (p, _), prob in zip(scored, probs):
+                cum += prob
+                if r <= cum:
+                    return _
+            return scored[0][1]
+
+        children = elites.copy()
         while len(children) < population_size:
-            p1, p2 = random.sample(best_half, 2)
-            # single-point crossover
+            p1 = pick_parent()
+            p2 = pick_parent()
             if len(areas) > 1:
                 cp = random.randint(1, len(areas) - 1)
+                child = [dict(x) for x in (p1[:cp] + p2[cp:])]
             else:
-                cp = 1
-            child = p1[:cp] + p2[cp:]
-            # mutation
-            if random.random() < 0.2:
+                child = [dict(x) for x in p1]
+
+            if random.random() < mutation_rate:
                 area_idx = random.randint(0, len(areas) - 1)
                 res_type = random.choice(["Food", "Water", "Medical"])
-                bound = total_food if res_type == "Food" else (total_water if res_type == "Water" else total_med)
-                child[area_idx]["Allocated"][res_type] = random.randint(0, max(1, bound))
+                cur_val = child[area_idx]["Allocated"].get(res_type, 0)
+                delta = int(max(1, round(0.10 * (total_food if res_type == "Food" else (total_water if res_type == "Water" else total_med)))))
+                change = random.randint(-delta, delta)
+                new_val = max(0, min(cur_val + change, total_food if res_type == "Food" else total_water if res_type == "Water" else total_med))
+                child[area_idx]["Allocated"][res_type] = new_val
+
             children.append(child)
         population = children
 
-    best_fitness, best_plan = scored[0]
+    final_scored = sorted([(fitness(ind), ind) for ind in population], key=lambda x: x[0], reverse=True)
+    best_fitness, best_plan = final_scored[0]
 
-    # plot fitness curve
     os.makedirs("static", exist_ok=True)
     plt.figure(figsize=(6, 4))
-    plt.plot(range(1, len(best_fitness_over_time) + 1), best_fitness_over_time, marker='o')
-    plt.title('Fitness Improvement Over Generations')
+    plt.plot(range(1, generations + 1), best_fitness_over_time, marker='o', label='Best')
+    plt.plot(range(1, generations + 1), avg_fitness_over_time, marker='x', label='Average')
+    plt.title('GA: Fitness Over Generations')
     plt.xlabel('Generation')
-    plt.ylabel('Best Fitness')
+    plt.ylabel('Fitness')
+    plt.legend()
     plt.grid(True)
     plt.tight_layout()
     plt.savefig('static/fitness_plot.png')
@@ -99,26 +133,17 @@ def ga_optimizer(areas, resources, generations=30, population_size=30):
 
     return best_plan, best_fitness
 
-
-# ---------------------- Route planning (nearest neighbor TSP-like) ----------------------
+# ---------------------- Route Planning ----------------------
 def euclidean(a, b):
     return math.hypot(a[0] - b[0], a[1] - b[1])
 
-
 def nearest_neighbor_route(hq_coord, target_points):
-    """
-    Simple nearest neighbor heuristic:
-    Start at HQ, repeatedly go to nearest unvisited point.
-    target_points: list of tuples (name, (x,y))
-    Returns route list of names in visiting order and total distance.
-    """
     unvisited = target_points.copy()
     route = []
     total_dist = 0.0
     current = ("HQ", hq_coord)
 
     while unvisited:
-        # find nearest
         nearest_idx = None
         nearest_dist = float('inf')
         for idx, (name, coord) in enumerate(unvisited):
@@ -126,7 +151,6 @@ def nearest_neighbor_route(hq_coord, target_points):
             if d < nearest_dist:
                 nearest_dist = d
                 nearest_idx = idx
-        # move to nearest
         name, coord = unvisited.pop(nearest_idx)
         route.append((name, coord, nearest_dist))
         total_dist += nearest_dist
@@ -134,185 +158,99 @@ def nearest_neighbor_route(hq_coord, target_points):
 
     return route, total_dist
 
-
 def plot_route_map(hq_coord, areas, route_order, filename='static/route_map.png'):
-    """
-    areas: list of area dicts (with x,y and Blocked)
-    route_order: list of names in visiting order (only unblocked ones)
-    """
     os.makedirs("static", exist_ok=True)
     plt.figure(figsize=(7, 6))
 
-    # draw all points
     for a in areas:
-        name = a['Area']
-        x = a.get('x', 0.0)
-        y = a.get('y', 0.0)
+        name, x, y = a['Area'], a['x'], a['y']
         blocked = (a.get('Blocked') or 'No').lower() == 'yes'
         if blocked:
-            plt.scatter(x, y, marker='x', color='red', s=100)
-            plt.text(x + 0.5, y + 0.5, f"{name} (blocked)", fontsize=9)
+            plt.scatter(x, y, color='red', marker='x', s=100)
+            plt.text(x + 0.4, y + 0.4, f"{name} (blocked)", fontsize=9)
         else:
-            plt.scatter(x, y, marker='o', color='green', s=80)
-            plt.text(x + 0.5, y + 0.5, name, fontsize=9)
+            plt.scatter(x, y, color='green', s=80)
+            plt.text(x + 0.4, y + 0.4, name, fontsize=9)
 
-    # HQ
-    plt.scatter(hq_coord[0], hq_coord[1], marker='s', color='blue', s=140)
-    plt.text(hq_coord[0] + 0.5, hq_coord[1] + 0.5, "HQ", fontsize=10, fontweight='bold')
+    plt.scatter(hq_coord[0], hq_coord[1], color='blue', marker='s', s=140)
+    plt.text(hq_coord[0] + 0.4, hq_coord[1] + 0.4, "HQ", fontsize=10, fontweight='bold')
 
-    # draw lines following route_order
     coords = [hq_coord]
     for name in route_order:
         a = next((x for x in areas if x['Area'] == name), None)
         coords.append((a['x'], a['y']))
-    # draw piecewise lines
-    xs = [c[0] for c in coords]
-    ys = [c[1] for c in coords]
-    if len(coords) >= 2:
-        plt.plot(xs, ys, '-k', linewidth=1.8, alpha=0.8)
+    xs, ys = [c[0] for c in coords], [c[1] for c in coords]
+    plt.plot(xs, ys, '-k', linewidth=1.8, alpha=0.8)
+    for i in range(len(coords) - 1):
+        x1, y1 = coords[i]
+        x2, y2 = coords[i + 1]
+        plt.arrow(x1, y1, x2 - x1, y2 - y1, length_includes_head=True, head_width=0.6, head_length=1.0, fc='k', ec='k')
 
-        # draw arrows for direction
-        for i in range(len(coords) - 1):
-            x1, y1 = coords[i]
-            x2, y2 = coords[i + 1]
-            plt.arrow(x1, y1, x2 - x1, y2 - y1, length_includes_head=True,
-                      head_width=0.8, head_length=1.2, fc='k', ec='k', alpha=0.8)
-
-    plt.title('Route Map (HQ → ... → last area)')
-    plt.xlabel('X coordinate')
-    plt.ylabel('Y coordinate')
+    plt.title('Route Map (HQ → ... → Last Area)')
+    plt.xlabel('X Coordinate')
+    plt.ylabel('Y Coordinate')
     plt.grid(True)
     plt.tight_layout()
     plt.savefig(filename)
     plt.close()
 
-
-# ---------------------- Flask routes ----------------------
+# ---------------------- Combined Route + GA ----------------------
 @app.route('/')
 def index():
     return render_template('index.html')
 
-
-@app.route('/optimize', methods=['POST'])
-def optimize():
-    # read variable-length areas
-    areas = []
-    idx = 1
+@app.route('/optimize_and_route', methods=['POST'])
+def optimize_and_route():
+    areas, idx = [], 1
     while True:
         name = request.form.get(f'area{idx}')
         if not name:
             break
-        pop = request.form.get(f'pop{idx}') or "0"
-        need = request.form.get(f'need{idx}') or ""
-        urg = request.form.get(f'urg{idx}') or "Low"
-        blk = request.form.get(f'blk{idx}') or "No"
-        # coordinates may be present but not required for allocation
-        x = request.form.get(f'x{idx}')
-        y = request.form.get(f'y{idx}')
         try:
-            x = float(x) if x not in (None, "") else 0.0
-            y = float(y) if y not in (None, "") else 0.0
-        except ValueError:
-            x, y = 0.0, 0.0
-
+            x = float(request.form.get(f'x{idx}', 0))
+            y = float(request.form.get(f'y{idx}', 0))
+        except:
+            x, y = 0, 0
         areas.append({
             "Area": name,
-            "Population": int(pop),
-            "Need": need,
-            "Urgency": urg,
-            "Blocked": blk,
-            "x": x,
-            "y": y
+            "Population": int(request.form.get(f'pop{idx}', 0)),
+            "Need": request.form.get(f'need{idx}', ""),
+            "Urgency": request.form.get(f'urg{idx}', "Low"),
+            "Blocked": request.form.get(f'blk{idx}', "No"),
+            "x": x, "y": y
         })
         idx += 1
+
+    if not areas:
+        return render_template('index.html', message="Please add at least one area.")
 
     resources = {
-        "Food": int(request.form.get('food') or 0),
-        "Water": int(request.form.get('water') or 0),
-        "Medical": int(request.form.get('medical') or 0)
+        "Food": int(request.form.get('food', 0)),
+        "Water": int(request.form.get('water', 0)),
+        "Medical": int(request.form.get('medical', 0))
     }
 
-    if not areas:
-        return render_template('index.html', message="Please add at least one area before optimizing.")
+    # Run Genetic Algorithm
+    allocations, fitness = ga_optimizer(areas, resources, generations=40, population_size=40)
 
-    allocations, fitness = ga_optimizer(areas, resources)
-
-    # return with allocations and fitness plot
-    return render_template('index.html',
-                           allocations=allocations,
-                           fitness_score=fitness,
-                           fitness_plot='fitness_plot.png')
-
-
-@app.route('/route', methods=['POST'])
-def route():
-    # read variable-length areas (with coordinates)
-    areas = []
-    idx = 1
-    while True:
-        name = request.form.get(f'area{idx}')
-        if not name:
-            break
-        pop = request.form.get(f'pop{idx}') or "0"
-        need = request.form.get(f'need{idx}') or ""
-        urg = request.form.get(f'urg{idx}') or "Low"
-        blk = request.form.get(f'blk{idx}') or "No"
-        x = request.form.get(f'x{idx}')
-        y = request.form.get(f'y{idx}')
-        try:
-            x = float(x)
-            y = float(y)
-        except (ValueError, TypeError):
-            # if coordinates missing or invalid, default to 0,0
-            x, y = 0.0, 0.0
-
-        areas.append({
-            "Area": name,
-            "Population": int(pop),
-            "Need": need,
-            "Urgency": urg,
-            "Blocked": blk,
-            "x": x,
-            "y": y
-        })
-        idx += 1
-
-    if not areas:
-        return render_template('index.html', message="Please add at least one area before finding route.")
-
-    # HQ coordinate (you can change to user input if desired)
+    # Route Planning
     hq = (0.0, 0.0)
+    unblocked_points = [(a["Area"], (a["x"], a["y"])) for a in areas if (a["Blocked"] or "No").lower() != "yes"]
+    route_info, total_dist = nearest_neighbor_route(hq, unblocked_points)
+    route_order = [r[0] for r in route_info]
+    route_summary = [f"{n}: dist={d:.2f}" for n, _, d in route_info]
+    route_summary.append(f"Total distance: {total_dist:.2f}")
+    plot_route_map(hq, areas, route_order)
 
-    # build list of unblocked points with coordinates
-    unblocked_points = []
-    for a in areas:
-        if (a.get('Blocked') or 'No').lower() != 'yes':
-            unblocked_points.append((a['Area'], (a['x'], a['y'])))
-
-    if not unblocked_points:
-        return render_template('index.html', message="No unblocked areas to route to.", route_plot=None)
-
-    # compute nearest-neighbor route from HQ (stops after last area)
-    route_info, total_distance = nearest_neighbor_route(hq, unblocked_points)
-    # route_info is list of (name, coord, dist_from_prev)
-    route_order = [entry[0] for entry in route_info]
-
-    # create human-readable route summary with distances
-    # the first distance in route_info is from HQ to first area, etc.
-    route_summary = []
-    for name, coord, dist in route_info:
-        route_summary.append(f"{name}: distance from previous = {dist:.2f}")
-
-    route_summary.append(f"Total distance (HQ → ... → last): {total_distance:.2f}")
-
-    # plot map and route
-    plot_route_map(hq, areas, route_order, filename='static/route_map.png')
-
-    return render_template('index.html',
-                           route_plot='route_map.png',
-                           route_order=route_order,
-                           route_summary=route_summary)
-
+    return render_template(
+        'index.html',
+        allocations=allocations,
+        fitness_score=fitness,
+        fitness_plot='fitness_plot.png',
+        route_plot='route_map.png',
+        route_summary=route_summary,
+        route_order=route_order
+    )
 
 if __name__ == '__main__':
     app.run(debug=True)
