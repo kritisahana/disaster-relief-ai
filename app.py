@@ -46,21 +46,26 @@ def ga_optimizer(areas, resources, generations=30, population_size=30, elite_siz
 
         for p, a in zip(plan, areas):
             need = (a.get("Need") or "").lower()
-            blocked = (a.get("Blocked") or "no").lower()
+            
 
             food = p["Allocated"]["Food"]
             water = p["Allocated"]["Water"]
             medical = p["Allocated"]["Medical"]
 
-            # Priority based on need type
             if need == "food":
+                # heavily reward food allocation; penalize if too little
                 score = (0.7 * food) + (0.2 * water) + (0.1 * medical)
+                if food < 0.1 * total_food / len(areas):  # if food is less than 10% of fair share
+                    score -= 200  # strong penalty
             elif need == "water":
                 score = (0.7 * water) + (0.2 * food) + (0.1 * medical)
+                if water < 0.1 * total_water / len(areas):
+                    score -= 200
             elif need == "medical":
                 score = (0.7 * medical) + (0.2 * food) + (0.1 * water)
+                if medical < 0.1 * total_med / len(areas):
+                    score -= 200
             else:
-                # if need is unspecified, treat all equally
                 score = 0.33 * (food + water + medical)
 
             fitness_score += score
@@ -293,7 +298,6 @@ def optimize_and_route():
             "Population": int(request.form.get(f'pop{idx}', 0)),
             "Need": request.form.get(f'need{idx}', ""),
             "Urgency": request.form.get(f'urg{idx}', "Low"),
-            "Blocked": request.form.get(f'blk{idx}', "No"),
             "x": x, "y": y
         })
         idx += 1
