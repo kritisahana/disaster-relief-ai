@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 app = Flask(__name__)
 
 # ---------------------- Genetic Algorithm ---------------------- 
-def ga_optimizer(areas, resources, generations=30, population_size=30, elite_size=2, mutation_rate=0.15):
+def ga_optimizer(areas, resources, generations=30, population_size=30, elite_size=5, mutation_rate=0.15):
     
     total_food = max(1, int(resources.get("Food", 0)))
     total_water = max(1, int(resources.get("Water", 0)))
